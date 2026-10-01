@@ -30,11 +30,11 @@ critical.
 
 | Metric | Acceptable Low Score Scenario | Critical Low Score Scenario | Action Required |
 |---|---|---|---|
-| Faithfulness | | | |
-| Answer Relevance | | | |
-| Context Recall | | | |
-| Context Precision | | | |
-| Completeness | | | |
+| Faithfulness | Câu chào hỏi xã giao hoặc câu trả lời từ chối lịch sự với câu hỏi out-of-scope/adversarial không có trong context. | Trả lời sai/bịa đặt điều khoản chính sách bảo hành, hoàn tiền hoặc giá bán sản phẩm (hallucination). | Ép prompt bám sát context ("chỉ trả lời dựa trên context"), hạ temperature = 0, bổ sung guardrail kiểm tra grounding. |
+| Answer Relevance | Khách hàng hỏi câu hỏi mơ hồ/chứa tiền đề sai, bot cần phản hồi để hỏi lại (clarify) hoặc sửa lại tiền đề thay vì trả lời trực tiếp. | Khách hỏi thủ tục đổi trả/bảo hành nhưng bot trả lời sang thông tin giới thiệu công ty hoặc quy trình tuyển dụng. | Tinh chỉnh system prompt buộc tập trung vào intent của người dùng; bổ sung few-shot examples về phản hồi đúng trọng tâm. |
+| Context Recall | Câu hỏi đơn giản tra cứu 1 sự kiện hiển nhiên hoặc câu hỏi ngoài phạm vi không đòi hỏi trích xuất nhiều tài liệu phụ. | Câu hỏi chính sách tổng hợp nhiều bước (ví dụ: hoàn tiền khi hủy đơn) nhưng retriever bỏ sót văn bản chính sách cốt lõi. | Mở rộng top-K retrieved chunks; tối ưu hóa chiến lược chunking (chunk size/overlap); bổ sung hybrid search (BM25 + Semantic). |
+| Context Precision | Truy xuất K lớn (ví dụ K=10) trong câu hỏi phức tạp đa tài liệu, các chunk hữu ích nằm rải rác nhưng vẫn nằm trong context window. | Top 1-2 chunks đầu tiên hoàn toàn là văn bản rác/nhiễu không liên quan, đẩy bằng chứng cốt lõi xuống cuối hoặc bị cắt bỏ. | Tích hợp thêm bước Reranking (Cross-encoder hoặc BM25 reranking) để đẩy các chunks liên quan nhất lên đầu danh sách. |
+| Completeness | Người dùng chỉ hỏi một chi tiết hẹp và bot trả lời ngắn gọn, chính xác mà không cần liệt kê toàn bộ quy định dài dòng. | Khách hỏi đầy đủ điều kiện bảo hành/đổi trả nhưng bot chỉ nêu 1 điều kiện và bỏ sót các ràng buộc bắt buộc khác. | Bổ sung hướng dẫn trong prompt yêu cầu liệt kê đầy đủ danh sách điều kiện/tiêu chí dưới dạng bullet points. |
 
 ### Exercise 1.2 — Bias trong LLM-as-a-Judge
 
@@ -47,14 +47,24 @@ Ba bias thường gặp:
 **Câu 1: Thiết kế experiment phát hiện position bias với ít nhất hai conditions.**
 
 > *Câu trả lời:*
+> - **Condition 1 (Thứ tự chuẩn A-B):** Cung cấp Answer A ở vị trí Candidate 1 và Answer B ở vị trí Candidate 2 cho LLM Judge, ghi nhận kết quả đánh giá (hoặc điểm số).
+> - **Condition 2 (Đảo ngược vị trí B-A):** Hoán đổi vị trí (Answer B ở Candidate 1, Answer A ở Candidate 2) với cùng Question, Rubric và giữ nguyên tham số (temperature = 0).
+> - **Đánh giá:** Nếu vị trí Candidate 1 có tỷ lệ thắng áp đảo hoặc điểm số trung bình cao hơn đáng kể giữa hai điều kiện, hệ thống đã bị Position Bias. Giải pháp là đánh giá từng câu đơn lẻ (single-answer rating) hoặc đảo vị trí và lấy điểm trung bình (swap permutation).
 
 **Câu 2: Làm thế nào giảm verbosity bias bằng rubric design?**
 
 > *Câu trả lời:*
+> - Định nghĩa rõ tiêu chuẩn đánh giá dựa trên **mật độ thông tin hữu ích và tính súc tích** (information density & conciseness) thay vì độ dài câu chữ.
+> - Bổ sung quy định trừ điểm rõ ràng trong rubric: "Nếu câu trả lời dài dòng, lặp lại thông tin, hoặc chứa các đoạn văn rào đón không mang lại giá trị giải quyết vấn đề cho khách hàng, trừ 1–2 điểm".
+> - Chỉ định cấu trúc và độ dài kỳ vọng cụ thể (ví dụ: câu trả lời tối ưu nên tóm gọn trong 3–5 gạch đầu dòng rõ ràng).
 
 **Câu 3: Tại sao cần calibrate LLM judge với human labels?**
 
 > *Câu trả lời:*
+> - LLM Judge không tự động hiểu được kỳ vọng nghiệp vụ thực tế của con người và thường mắc các thiên kiến cố hữu (ưu tiên văn phong của chính nó, xu hướng chấm điểm dễ dãi hoặc quá khắt khe).
+> - Cần đo độ tương quan (Spearman correlation / Cohen's Kappa) giữa điểm LLM chấm và điểm chuyên gia con người (human annotators) trên một tập mẫu validation để:
+>   1. Xác minh độ tin cậy của Judge trước khi triển khai quy mô lớn.
+>   2. Căn chỉnh thang điểm và phát hiện ngưỡng lệch (systematic bias) để tinh chỉnh prompt/rubric cho chuẩn xác.
 
 ### Exercise 1.3 — Evaluation trong CI/CD
 
@@ -62,13 +72,16 @@ Ba bias thường gặp:
 
 | Metric | Threshold | Lý do |
 |---|---:|---|
-| Faithfulness | | |
-| Answer Relevance | | |
-| Completeness | | |
+| Faithfulness | >= 0.85 | Hệ thống chăm sóc khách hàng OrbitTech yêu cầu độ trung thực cao nhất; ảo giác/bịa đặt chính sách có thể dẫn đến tranh chấp pháp lý hoặc thiệt hại tài chính. |
+| Answer Relevance | >= 0.80 | Đảm bảo phản hồi giải quyết đúng thắc mắc của khách, tránh trả lời vòng vo gây mất thời gian và trải nghiệm tiêu cực. |
+| Completeness | >= 0.75 | Đảm bảo cung cấp đủ thông tin quy trình/điều kiện cần thiết, chấp nhận độ co giãn nhẹ nếu câu trả lời súc tích. |
 
 **Câu 2: Khi nào dùng offline evaluation, online evaluation và human review?**
 
 > *Câu trả lời:*
+> - **Offline Evaluation:** Dùng trong CI/CD pipeline trước khi release (mỗi pull request hoặc nightly build) trên bộ Golden Dataset cố định để kiểm tra hồi quy (regression) một cách an toàn, tự động và có thể tái lập.
+> - **Online Evaluation:** Dùng khi hệ thống đã chạy trên production để giám sát traffic thực tế theo thời gian thực (tracking tỷ lệ escalate gặp nhân viên, thumbs up/down, hoặc sample một phần logs đưa qua LLM Judge) nhằm phát hiện data drift.
+> - **Human Review:** Dùng định kỳ (audit mẫu 1–5% logs hàng tuần) hoặc rà soát chuyên sâu các ca bị gắn cờ nghiêm trọng (low-confidence / high-risk complaints) để cập nhật Golden Dataset và calibrate lại LLM Judge.
 
 ---
 
